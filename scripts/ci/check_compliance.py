@@ -606,7 +606,8 @@ class DevicetreeLintingCheck(ComplianceTest):
         if not self.ensure_npx():
             self.skip(
                 'dts-linter not installed. To run this check, '
-                'install Node.js and then run [npm ci] command inside ZEPHYR_BASE'
+                'install Node.js and then run [npm --prefix ./scripts/ci ci] command inside '
+                'ZEPHYR_BASE'
             )
         if not dts_files:
             self.skip('No DTS')
@@ -648,7 +649,8 @@ class DevicetreeLintingCheck(ComplianceTest):
                     self.failure(f"dts-linter found issues:\n{stderr_output}")
                 else:
                     err = "dts-linter failed with no output. "
-                    err += "Make sure you install Node.js and then run npm ci inside ZEPHYR_BASE"
+                    err += "Make sure you install Node.js and then run "
+                    err += "[npm --prefix ./scripts/ci ci] inside ZEPHYR_BASE"
                     self.failure(err)
             except RuntimeError as ex:
                 self.failure(f"{ex}")
@@ -1433,6 +1435,7 @@ Missing SoC names or CONFIG_SOC vs soc.yml out of sync:
                     and sym_name not in self.UNDEF_KCONFIG_ALLOWLIST
                     and not (sym_name.endswith("_MODULE") and sym_name[:-7] in defined_syms)
                     and not sym_name.startswith("BOARD_REVISION_")
+                    and not (sym_name.startswith("DT_HAS_") and sym_name.endswith("_ENABLED"))
                 ):
                     undef_to_locs[sym_name].append(f"{path}:{lineno}")
 
@@ -2359,7 +2362,7 @@ class KeepSorted(ComplianceTest):
 
     MARKER = "zephyr-keep-sorted"
 
-    def block_check_sorted(self, block_data, *, regex, strip, fold):
+    def block_check_sorted(self, block_data, *, regex, strip, fold, icase):
         def _test_indent(txt: str):
             return txt.startswith((" ", "\t"))
 
@@ -2390,6 +2393,9 @@ class KeepSorted(ComplianceTest):
                     for cont in takewhile(_test_indent, lines[idx + 1 :]):
                         line += cont.strip()
 
+            if icase:
+                line = line.casefold()
+
             if line < last:
                 return idx
 
@@ -2411,10 +2417,12 @@ class KeepSorted(ComplianceTest):
         regex_marker = r"re\(([^)]+)\)"
         strip_marker = r"strip\(([^)]+)\)"
         nofold_marker = "nofold"
+        ignorecase_marker = "ignorecase"
         start_line = 0
         regex = None
         strip = None
         fold = True
+        icase = False
 
         for line_num, line in enumerate(fp.readlines(), start=1):
             if start_marker in line:
@@ -2433,13 +2441,16 @@ class KeepSorted(ComplianceTest):
                 strip = match.group(1) if match else None
 
                 fold = nofold_marker not in line
+                icase = ignorecase_marker in line
             elif stop_marker in line:
                 if not in_block:
                     desc = f"{stop_marker} without {start_marker}"
                     self.fmtd_failure("error", "KeepSorted", file, line_num, desc=desc)
                 in_block = False
 
-                idx = self.block_check_sorted(block_data, regex=regex, strip=strip, fold=fold)
+                idx = self.block_check_sorted(
+                    block_data, regex=regex, strip=strip, fold=fold, icase=icase
+                )
                 if idx >= 0:
                     desc = f"sorted block has out-of-order line at {start_line + idx}"
                     self.fmtd_failure("error", "KeepSorted", file, line_num, desc=desc)
